@@ -11,7 +11,7 @@ find_library(android-lib android)
 find_library(vulkan-lib vulkan)
 
 add_library(MyLayer SHARED
-    src/overlay_layer.cpp
+    src/my_layer.cpp
 )
 
 target_link_libraries(MyLayer
