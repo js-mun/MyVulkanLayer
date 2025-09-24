@@ -17,11 +17,13 @@ find_library(vulkan-lib vulkan)
 
 add_library(MyLayer SHARED
     src/my_layer.cpp
+    src/utils.cpp
 )
 
 target_include_directories(MyLayer PRIVATE 
     ${VULKAN_HEADERS_DIR}
     ${Vulkan_INCLUDE_DIR}
+    src
 )
 target_link_libraries(MyLayer
     ${log-lib}

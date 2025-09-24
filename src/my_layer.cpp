@@ -1,11 +1,10 @@
+#include "utils.h"
+
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_layer.h>
 #include <android/log.h>
 #include <string>
 #include <vector>
-
-#define LOG_TAG "MyLayer"
-#define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 #define VK_LAYER_EXPORT __attribute__((visibility("default")))
 
@@ -25,6 +24,10 @@ VKAPI_ATTR VkResult VKAPI_CALL my_vkQueuePresentKHR(
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL my_vkGetInstanceProcAddr(
     VkInstance instance, const char* pName)
 {
+    if (!should_enable_layer()) {
+        return vkGetInstanceProcAddr(instance, pName);
+    }
+
     if (!strcmp(pName, "vkQueuePresentKHR")) {
         if (!real_vkQueuePresentKHR) {
             real_vkQueuePresentKHR = (PFN_vkQueuePresentKHR)vkGetInstanceProcAddr(instance, "vkQueuePresentKHR");
