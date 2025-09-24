@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.19)
 project(MyLayer CXX)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(VULKAN_HEADERS_DIR external/Vulkan-Headers/include)
 
 # Android 
 find_library(log-lib log)
@@ -10,10 +14,15 @@ find_library(android-lib android)
 # Vulkan
 find_library(vulkan-lib vulkan)
 
+
 add_library(MyLayer SHARED
     src/my_layer.cpp
 )
 
+target_include_directories(MyLayer PRIVATE 
+    ${VULKAN_HEADERS_DIR}
+    ${Vulkan_INCLUDE_DIR}
+)
 target_link_libraries(MyLayer
     ${log-lib}
     ${android-lib}
