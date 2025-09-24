@@ -41,13 +41,11 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL my_vkGetInstanceProcAddr(
 
 extern "C" {
 
-VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL
-vkGetInstanceProcAddr(VkInstance instance, const char* pName) {
+VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char* pName) {
     return my_vkGetInstanceProcAddr(instance, pName);
 }
 
-VK_LAYER_EXPORT VkResult VKAPI_CALL
-vkNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface* pVersionStruct) {
+VK_LAYER_EXPORT VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface* pVersionStruct) {
     return VK_SUCCESS;
 }
 
