@@ -15,7 +15,7 @@ VKAPI_ATTR VkResult VKAPI_CALL my_vkQueuePresentKHR(
     VkQueue queue,
     const VkPresentInfoKHR* pPresentInfo)
 {
-    ALOGI("Swapchain image presented! Image count: %u", pPresentInfo->swapchainCount);
+    ALOGE("Swapchain image presented! Image count: %u", pPresentInfo->swapchainCount);
 
 
     return real_vkQueuePresentKHR(queue, pPresentInfo);
@@ -24,17 +24,17 @@ VKAPI_ATTR VkResult VKAPI_CALL my_vkQueuePresentKHR(
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL my_vkGetInstanceProcAddr(
     VkInstance instance, const char* pName)
 {
-    if (!should_enable_layer()) {
-        return vkGetInstanceProcAddr(instance, pName);
-    }
+    ALOGE("Layer loaded");
 
     if (!strcmp(pName, "vkQueuePresentKHR")) {
         if (!real_vkQueuePresentKHR) {
             real_vkQueuePresentKHR = (PFN_vkQueuePresentKHR)vkGetInstanceProcAddr(instance, "vkQueuePresentKHR");
         }
+        ALOGE("my_vkGetInstanceProcAddr -> my_vkQueuePresentKHR");
         return (PFN_vkVoidFunction)my_vkQueuePresentKHR;
     }
     
+    ALOGE("my_vkGetInstanceProcAddr -> vkGetInstanceProcAddr()2");
     return vkGetInstanceProcAddr(instance, pName); 
 }
 
@@ -42,10 +42,12 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL my_vkGetInstanceProcAddr(
 extern "C" {
 
 VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char* pName) {
+    ALOGE("vkGetInstanceProcAddr -> my_vkGetInstanceProcAddr");
     return my_vkGetInstanceProcAddr(instance, pName);
 }
 
 VK_LAYER_EXPORT VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface* pVersionStruct) {
+    ALOGE("vkNegotiateLoaderLayerInterfaceVersion -> VK_SUCCESS");
     return VK_SUCCESS;
 }
 
