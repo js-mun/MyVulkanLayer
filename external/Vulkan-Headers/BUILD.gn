@@ -14,9 +14,6 @@ config("vulkan_headers_config") {
   }
   if (defined(vulkan_use_x11) && vulkan_use_x11) {
     defines += [ "VK_USE_PLATFORM_XCB_KHR" ]
-    if (!defined(vulkan_no_xlib_headers) || !vulkan_no_xlib_headers) {
-      defines += [ "VK_USE_PLATFORM_XLIB_KHR" ]
-    }
   }
   if (defined(vulkan_use_wayland) && vulkan_use_wayland) {
     defines += [ "VK_USE_PLATFORM_WAYLAND_KHR" ]
@@ -60,7 +57,6 @@ source_set("vulkan_headers") {
     "include/vulkan/vulkan_core.h",
     "include/vulkan/vulkan_screen.h",
     "include/vk_video/vulkan_video_codec_av1std_decode.h",
-    "include/vk_video/vulkan_video_codec_av1std_encode.h",
     "include/vk_video/vulkan_video_codec_av1std.h",
     "include/vk_video/vulkan_video_codec_h264std_decode.h",
     "include/vk_video/vulkan_video_codec_h264std_encode.h",
@@ -68,8 +64,6 @@ source_set("vulkan_headers") {
     "include/vk_video/vulkan_video_codec_h265std_decode.h",
     "include/vk_video/vulkan_video_codec_h265std_encode.h",
     "include/vk_video/vulkan_video_codec_h265std.h",
-    "include/vk_video/vulkan_video_codec_vp9std_decode.h",
-    "include/vk_video/vulkan_video_codec_vp9std.h",
     "include/vk_video/vulkan_video_codecs_common.h",
   ]
   public_configs = [ ":vulkan_headers_config" ]

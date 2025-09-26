@@ -1,6 +1,6 @@
 #!/usr/bin/env python3 -i
 #
-# Copyright 2013-2025 The Khronos Group Inc.
+# Copyright 2013-2024 The Khronos Group Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 """Base class for source/header/doc generators, as well as some utility functions."""
@@ -116,7 +116,7 @@ class MissingGeneratorOptionsError(RuntimeError):
     def __init__(self, msg=None):
         full_msg = 'Missing generator options object self.genOpts'
         if msg:
-            full_msg += f": {msg}"
+            full_msg += ': ' + msg
         super().__init__(full_msg)
 
 
@@ -126,7 +126,7 @@ class MissingRegistryError(RuntimeError):
     def __init__(self, msg=None):
         full_msg = 'Missing Registry object self.registry'
         if msg:
-            full_msg += f": {msg}"
+            full_msg += ': ' + msg
         super().__init__(full_msg)
 
 
@@ -136,7 +136,7 @@ class MissingGeneratorOptionsConventionsError(RuntimeError):
     def __init__(self, msg=None):
         full_msg = 'Missing Conventions object self.genOpts.conventions'
         if msg:
-            full_msg += f": {msg}"
+            full_msg += ': ' + msg
         super().__init__(full_msg)
 
 
@@ -338,7 +338,7 @@ class OutputGenerator:
         )
 
         if name in bad and True:
-            print(f'breakName {name}: {msg}')
+            print('breakName {}: {}'.format(name, msg))
             pdb.set_trace()
 
     def __init__(self, errFile=sys.stderr, warnFile=sys.stderr, diagFile=sys.stdout):
@@ -399,7 +399,7 @@ class OutputGenerator:
                 write('DIAG:', *args, file=self.diagFile)
         else:
             raise UserWarning(
-                f"*** FATAL ERROR in Generator.logMsg: unknown level:{level}")
+                '*** FATAL ERROR in Generator.logMsg: unknown level:' + level)
 
     def enumToValue(self, elem, needsNum, bitwidth = 32,
                     forceSuffix = False, parent_for_alias_dereference=None):
@@ -452,20 +452,20 @@ class OutputGenerator:
             #     value += enuminfo.type
             if forceSuffix:
               if bitwidth == 64:
-                value = f"{value}ULL"
+                value = value + 'ULL'
               else:
-                value = f"{value}U"
+                value = value + 'U'
             self.logMsg('diag', 'Enum', name, '-> value [', numVal, ',', value, ']')
             return [numVal, value]
         if 'bitpos' in elem.keys():
             value = elem.get('bitpos')
             bitpos = int(value, 0)
             numVal = 1 << bitpos
-            value = f'0x{numVal:08x}'
+            value = '0x%08x' % numVal
             if bitwidth == 64 or bitpos >= 32:
-              value = f"{value}ULL"
+              value = value + 'ULL'
             elif forceSuffix:
-              value = f"{value}U"
+              value = value + 'U'
             self.logMsg('diag', 'Enum', name, '-> bitpos [', numVal, ',', value, ']')
             return [numVal, value]
         if 'offset' in elem.keys():
@@ -562,41 +562,6 @@ class OutputGenerator:
     def misracppstyle(self):
         return False;
 
-    def deprecationComment(self, elem, indent = 0):
-        """If an API element is marked deprecated, return a brief comment
-           describing why.
-           Otherwise, return an empty string.
-
-          - elem - Element of the API.
-            API name is determined depending on the element tag.
-          - indent - number of spaces to indent the comment"""
-
-        reason = elem.get('deprecated')
-
-        # This is almost always the path taken.
-        if reason == None:
-            return ''
-
-        # There is actually a deprecated attribute.
-        padding = indent * ' '
-
-        # Determine the API name.
-        if elem.tag == 'member' or elem.tag == 'param':
-            name = elem.find('.//name').text
-        else:
-            name = elem.get('name')
-
-        if reason == 'aliased':
-            return f'{padding}// {name} is a deprecated alias\n'
-        elif reason == 'ignored':
-            return f'{padding}// {name} is deprecated and should not be used\n'
-        elif reason == 'true':
-            return f'{padding}// {name} is deprecated, but no reason was given in the API XML\n'
-        else:
-            # This can be caught by schema validation
-            self.logMsg('error', f"{name} has an unknown deprecation attribute value '{reason}'")
-            exit(1)
-
     def buildEnumCDecl(self, expand, groupinfo, groupName):
         """Generate the C declaration for an enum"""
         if self.genOpts is None:
@@ -655,12 +620,12 @@ class OutputGenerator:
         flagTypeName = groupElem.get('name')
 
         # Prefix
-        body = f"// Flag bits for {flagTypeName}\n"
+        body = "// Flag bits for " + flagTypeName + "\n"
 
         if bitwidth == 64:
-            body += f"typedef VkFlags64 {flagTypeName};\n";
+            body += "typedef VkFlags64 %s;\n" % flagTypeName;
         else:
-            body += f"typedef VkFlags {flagTypeName};\n";
+            body += "typedef VkFlags %s;\n" % flagTypeName;
 
         # Maximum allowable value for a flag (unsigned 64-bit integer)
         maxValidValue = 2**(64) - 1
@@ -697,25 +662,23 @@ class OutputGenerator:
             if self.isEnumRequired(elem):
                 protect = elem.get('protect')
                 if protect is not None:
-                    body += f'#ifdef {protect}\n'
-
-                body += self.deprecationComment(elem, indent = 0)
+                    body += '#ifdef {}\n'.format(protect)
 
                 if usedefine:
-                    decl += f"#define {name} {strVal}\n"
+                    decl += "#define {} {}\n".format(name, strVal)
                 elif self.misracppstyle():
-                    decl += f"static constexpr {flagTypeName} {name} {{{strVal}}};\n"
+                    decl += "static constexpr {} {} {{{}}};\n".format(flagTypeName, name, strVal)
                 else:
                     # Some C compilers only allow initializing a 'static const' variable with a literal value.
                     # So initializing an alias from another 'static const' value would fail to compile.
                     # Work around this by chasing the aliases to get the actual value.
                     while numVal is None:
-                        alias = self.registry.tree.find(f"enums/enum[@name='{strVal}']")
+                        alias = self.registry.tree.find("enums/enum[@name='" + strVal + "']")
                         if alias is not None:
                             (numVal, strVal) = self.enumToValue(alias, True, bitwidth, True)
                         else:
-                            self.logMsg('error', f'No such alias {strVal} for enum {name}')
-                    decl += f"static const {flagTypeName} {name} = {strVal};\n"
+                            self.logMsg('error', 'No such alias {} for enum {}'.format(strVal, name))
+                    decl += "static const {} {} = {};\n".format(flagTypeName, name, strVal)
 
                 if numVal is not None:
                     body += decl
@@ -743,7 +706,7 @@ class OutputGenerator:
         expandSuffix = ''
         expandSuffixMatch = re.search(r'[A-Z][A-Z]+$', groupName)
         if expandSuffixMatch:
-            expandSuffix = f"_{expandSuffixMatch.group()}"
+            expandSuffix = '_' + expandSuffixMatch.group()
             # Strip off the suffix from the prefix
             expandPrefix = expandName.rsplit(expandSuffix, 1)[0]
 
@@ -792,12 +755,14 @@ class OutputGenerator:
 
                 protect = elem.get('protect')
                 if protect is not None:
-                    decl += f'#ifdef {protect}\n'
+                    decl += '#ifdef {}\n'.format(protect)
 
-
-                decl += self.genRequirements(name, mustBeFound = False, indent = 2)
-                decl += self.deprecationComment(elem, indent = 2)
-                decl += f'    {name} = {strVal},'
+                # Indent requirements comment, if there is one
+                requirements = self.genRequirements(name, mustBeFound = False)
+                if requirements != '':
+                    requirements = '  ' + requirements
+                decl += requirements
+                decl += '    {} = {},'.format(name, strVal)
 
                 if protect is not None:
                     decl += '\n#endif'
@@ -868,8 +833,8 @@ class OutputGenerator:
             if typeStr != "float":
                 number += 'U'
             strVal = "~" if invert else ""
-            strVal += f"static_cast<{typeStr}>({number})"
-            body = f"static constexpr {typeStr.ljust(9)}{name.ljust(33)} {{{strVal}}};"
+            strVal += "static_cast<" + typeStr + ">(" + number + ")"
+            body = 'static constexpr ' + typeStr.ljust(9) + name.ljust(33) + ' {' + strVal + '};'
         elif enuminfo.elem.get('type') and not alias:
             # Generate e.g.: #define x (~0ULL)
             typeStr = enuminfo.elem.get('type');
@@ -884,10 +849,10 @@ class OutputGenerator:
             strVal = "~" if invert else ""
             strVal += number
             if paren:
-                strVal = f"({strVal})";
-            body = f"#define {name.ljust(33)} {strVal}";
+                strVal = "(" + strVal + ")";
+            body = '#define ' + name.ljust(33) + ' ' + strVal;
         else:
-            body = f"#define {name.ljust(33)} {strVal}"
+            body = '#define ' + name.ljust(33) + ' ' + strVal
 
         return body
 
@@ -979,7 +944,7 @@ class OutputGenerator:
         self.featureName = None
         self.featureExtraProtect = None
 
-    def genRequirements(self, name, mustBeFound = True, indent = 0):
+    def genRequirements(self, name, mustBeFound = True):
         """Generate text showing what core versions and extensions introduce
         an API. This exists in the base Generator class because it is used by
         the shared enumerant-generating interfaces (buildEnumCDecl, etc.).
@@ -1102,7 +1067,7 @@ class OutputGenerator:
         """Make the function-pointer typedef name for a command."""
         if self.genOpts is None:
             raise MissingGeneratorOptionsError()
-        return f"({self.genOpts.apientryp}PFN_{name}{tail})"
+        return '(' + self.genOpts.apientryp + 'PFN_' + name + tail + ')'
 
     def makeCParamDecl(self, param, aligncol):
         """Return a string which is an indented, formatted
@@ -1135,14 +1100,14 @@ class OutputGenerator:
                 # This works around a problem where very long type names -
                 # longer than the alignment column - would run into the tail
                 # text.
-                paramdecl = f"{paramdecl.ljust(aligncol - 1)} "
+                paramdecl = paramdecl.ljust(aligncol - 1) + ' '
                 newLen = len(paramdecl)
                 self.logMsg('diag', 'Adjust length of parameter decl from', oldLen, 'to', newLen, ':', paramdecl)
 
             if (self.misracppstyle() and prefix.find('const ') != -1):
                 # Change pointer type order from e.g. "const void *" to "void const *".
                 # If the string starts with 'const', reorder it to be after the first type.
-                paramdecl += f"{prefix.replace('const ', '') + text} const{tail}"
+                paramdecl += prefix.replace('const ', '') + text + ' const' + tail
             else:
                 paramdecl += prefix + text + tail
 
@@ -1169,7 +1134,7 @@ class OutputGenerator:
 
         # Allow for missing <name> tag
         newLen = 0
-        paramdecl = f"    {noneStr(param.text)}"
+        paramdecl = '    ' + noneStr(param.text)
         for elem in param:
             text = noneStr(elem.text)
             tail = noneStr(elem.tail)
@@ -1400,7 +1365,7 @@ class OutputGenerator:
                             # Change pointer type order from e.g. "const void *" to "void const *".
                             # If the string starts with 'const', reorder it to be after the first type.
                             if (prefix.find('const ') != -1):
-                                param += f"{prefix.replace('const ', '') + t} const "
+                                param += prefix.replace('const ', '') + t + ' const '
                             else:
                                 param += prefix + t
                             # Clear prefix for subsequent iterations
@@ -1413,7 +1378,6 @@ class OutputGenerator:
         else:
             paramdecl += 'void'
         paramdecl += ");"
-
         return [pdecl + indentdecl, tdecl + paramdecl]
 
     def newline(self):
