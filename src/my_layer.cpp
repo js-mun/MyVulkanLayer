@@ -8,7 +8,7 @@
 #include <memory>
 
 // Android 로깅 매크로 정의
-#define LOG_TAG "VulkanLayerSample"
+#define LOG_TAG "MyLayer"
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
@@ -18,12 +18,17 @@ struct LayerInstanceData {
     VkInstance instance;
     PFN_vkGetInstanceProcAddr next_pfnGetInstanceProcAddr;
     PFN_vkDestroyInstance next_pfnDestroyInstance;
-    PFN_vkGetDeviceProcAddr next_pfnGetDeviceProcAddr;
 };
 
-// 스레드 안전성을 위한 뮤텍스
+struct LayerDeviceData {
+    VkDevice device;
+    PFN_vkGetDeviceProcAddr next_pfnGetDeviceProcAddr; 
+};
+
+static std::mutex g_device_mutex;
+static std::unordered_map<void*, std::unique_ptr<LayerDeviceData>> g_device_data_map;
+
 static std::mutex g_instance_mutex;
-// VkInstance와 레이어 데이터를 매핑하는 해시맵
 static std::unordered_map<void*, std::unique_ptr<LayerInstanceData>> g_instance_data_map;
 
 
@@ -96,9 +101,6 @@ VKAPI_ATTR VkResult VKAPI_CALL Hook_vkCreateInstance(
     // 다음 레이어의 다른 함수 포인터들은 next_pfnGetInstanceProcAddr를 통해 가져옵니다.
     layer_data->next_pfnDestroyInstance = (PFN_vkDestroyInstance)next_pfnGetInstanceProcAddr(*pInstance, "vkDestroyInstance");
     
-    layer_data->next_pfnGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)next_pfnGetInstanceProcAddr(*pInstance, "vkGetDeviceProcAddr");
-
-
     void* dispatch_key = *(void**)*pInstance;
     {
         std::lock_guard<std::mutex> lock(g_instance_mutex);
@@ -116,37 +118,145 @@ VKAPI_ATTR VkResult VKAPI_CALL Hook_vkCreateInstance(
     return VK_SUCCESS;
 }
 
+VKAPI_ATTR void VKAPI_CALL Hook_vkDestroyDevice(
+    VkDevice device,
+    const VkAllocationCallbacks* pAllocator)
+{
+    void* dispatch_key = *(void**)device;
+    std::unique_ptr<LayerDeviceData> device_data;
+    
+    // 1. 디바이스 데이터 맵에서 데이터 검색 및 제거
+    {
+        std::lock_guard<std::mutex> lock(g_device_mutex);
+        auto it = g_device_data_map.find(dispatch_key);
+        if (it != g_device_data_map.end()) {
+            device_data = std::move(it->second);
+            g_device_data_map.erase(it);
+        }
+    }
+
+    if (device_data && device_data->next_pfnGetDeviceProcAddr) {
+        // 2. 다음 체인의 vkDestroyDevice를 얻어 호출
+        PFN_vkDestroyDevice next_pfnDestroyDevice = (PFN_vkDestroyDevice)
+            device_data->next_pfnGetDeviceProcAddr(device, "vkDestroyDevice");
+
+        if (next_pfnDestroyDevice) {
+            ALOGI("Hook_vkDestroyDevice! Device: %p", (void*)device);
+            next_pfnDestroyDevice(device, pAllocator);
+        } else {
+            // 다음 체인의 vkDestroyDevice를 찾지 못해도 메모리 정리를 위해 경고 후 종료
+            ALOGE("Hook_vkDestroyDevice: Not found next vkDestroyDevice");
+        }
+    } else {
+        ALOGE("Hook_vkDestroyDevice: Unknown Device(%p)", (void*)device);
+    }
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL Hook_vkCreateDevice(
+    VkPhysicalDevice physicalDevice,
+    const VkDeviceCreateInfo* pCreateInfo,
+    const VkAllocationCallbacks* pAllocator,
+    VkDevice* pDevice)
+{
+    // 1. 다음 레이어의 vkGetInstanceProcAddr를 찾아 다음 vkCreateDevice를 얻습니다.
+    void* instance_dispatch_key = *(void**)physicalDevice;
+    std::lock_guard<std::mutex> lock(g_instance_mutex);
+    auto it = g_instance_data_map.find(instance_dispatch_key);
+
+    if (it == g_instance_data_map.end()) {
+        ALOGE("Hook_vkCreateDevice: Not found LayerInstanceData");
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    LayerInstanceData* instance_data = it->second.get();
+    
+    // next_pfnGetInstanceProcAddr를 통해 다음 체인의 vkCreateDevice 포인터를 얻습니다.
+    PFN_vkCreateDevice next_pfnCreateDevice = (PFN_vkCreateDevice)
+        instance_data->next_pfnGetInstanceProcAddr(instance_data->instance, "vkCreateDevice");
+
+    if (!next_pfnCreateDevice) {
+        ALOGE("Hook_vkCreateDevice: Not found next vkCreateDevice.");
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    // 2. Layer 체인 정보를 갱신 (vkCreateInstance와 동일한 로직을 적용해야 함)
+    VkLayerDeviceCreateInfo* layerCreateInfo = (VkLayerDeviceCreateInfo*)pCreateInfo->pNext;
+    while (layerCreateInfo && (layerCreateInfo->sType != VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO ||
+                               layerCreateInfo->function != VK_LAYER_LINK_INFO)) {
+        layerCreateInfo = (VkLayerDeviceCreateInfo*)layerCreateInfo->pNext;
+    }
+    if (!layerCreateInfo) {
+        ALOGE("Hook_vkCreateDevice: Not found VK_LAYER_LINK_INFO.");
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    // 다음 Layer의 정보를 가리키도록 체인 갱신
+    layerCreateInfo->u.pLayerInfo = layerCreateInfo->u.pLayerInfo->pNext;
+    
+    // 3. 다음 체인의 vkCreateDevice 호출
+    VkResult result = next_pfnCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
+
+    if (result != VK_SUCCESS) {
+        return result;
+    }
+    
+    // 4. LayerDeviceData 초기화 및 연결
+    auto device_data = std::make_unique<LayerDeviceData>();
+    device_data->device = *pDevice;
+
+    // next_pfnGetDeviceProcAddr를 얻어 저장합니다.
+    PFN_vkGetDeviceProcAddr next_pfnGetDeviceProcAddr = layerCreateInfo->u.pLayerInfo->pfnNextGetDeviceProcAddr;
+    device_data->next_pfnGetDeviceProcAddr = next_pfnGetDeviceProcAddr;
+    
+    // VkDevice 핸들에서 디스패치 키를 가져와 맵에 저장합니다.
+    void* device_dispatch_key = *(void**)*pDevice;
+    {
+        std::lock_guard<std::mutex> lock(g_device_mutex);
+        g_device_data_map[device_dispatch_key] = std::move(device_data);
+    }
+
+    ALOGI("Hook_vkCreateDevice Success, Device: %p", (void*)*pDevice);
+    return VK_SUCCESS;
+}
+
+
 // --- 로더 인터페이스 함수 ---
 
+// Find a function pointer of device level functions (ex. vkCmdDraw, vkQueueSubmit)
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(
     VkDevice device,
     const char* pName)
 {
-    // 이 함수는 VkDevice를 받지만, 이 Device가 어떤 VkInstance에 속하는지 알기 어렵습니다.
-    // 가장 완벽한 방법은 vkCreateDevice를 후킹하여 <VkDevice, VkInstance> 맵을 만드는 것이지만,
-    // 이는 코드를 매우 복잡하게 만듭니다.
-    //
-    // 대부분의 안드로이드 앱은 VkInstance를 하나만 사용하므로,
-    // 첫 번째로 찾은 인스턴스의 GetDeviceProcAddr를 호출하는 방식으로 단순화합니다.
-    // 이것은 100% 완벽하진 않지만, 간단한 로깅 레이어에는 충분히 안정적인 절충안입니다.
-    std::lock_guard<std::mutex> lock(g_instance_mutex);
-    if (!g_instance_data_map.empty()) {
-        LayerInstanceData* instance_data = g_instance_data_map.begin()->second.get();
-        if (instance_data && instance_data->next_pfnGetDeviceProcAddr) {
-            return instance_data->next_pfnGetDeviceProcAddr(device, pName);
+    if (strcmp(pName, "vkGetDeviceProcAddr") == 0) return (PFN_vkVoidFunction)vkGetDeviceProcAddr;
+    
+    // (선택 사항) 훅킹할 디바이스 레벨 함수 목록을 여기에 추가합니다.
+    // if (strcmp(pName, "vkQueueSubmit") == 0) return (PFN_vkVoidFunction)Hook_vkQueueSubmit;
+
+    if (device != VK_NULL_HANDLE) {
+        void* dispatch_key = *(void**)device;
+        std::lock_guard<std::mutex> lock(g_device_mutex);
+        auto it = g_device_data_map.find(dispatch_key);
+        
+        if (it != g_device_data_map.end()) {
+            LayerDeviceData* device_data = it->second.get();
+            if (device_data && device_data->next_pfnGetDeviceProcAddr) {
+                return device_data->next_pfnGetDeviceProcAddr(device, pName);
+            }
         }
     }
     
     return nullptr;
 }
 
-
+// Find a function pointer of instance level functions. (ex. vkCreateInstance, vkCreateDevice)
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(
     VkInstance instance,
     const char* pName)
 {
     if (strcmp(pName, "vkCreateInstance") == 0) return (PFN_vkVoidFunction)Hook_vkCreateInstance;
     if (strcmp(pName, "vkDestroyInstance") == 0) return (PFN_vkVoidFunction)Hook_vkDestroyInstance;
+    if (strcmp(pName, "vkCreateDevice") == 0) return (PFN_vkVoidFunction)Hook_vkCreateDevice;
+    if (strcmp(pName, "vkDestroyDevice") == 0) return (PFN_vkVoidFunction)Hook_vkDestroyDevice;
     if (strcmp(pName, "vkGetInstanceProcAddr") == 0) return (PFN_vkVoidFunction)vkGetInstanceProcAddr;
     if (strcmp(pName, "vkGetDeviceProcAddr") == 0) return (PFN_vkVoidFunction)vkGetDeviceProcAddr;
 
