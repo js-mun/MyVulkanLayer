@@ -11,7 +11,6 @@ set(VULKAN_HEADERS_DIR external/Vulkan-Headers/include)
 # Android 
 find_library(log-lib log)
 find_library(android-lib android)
-find_library(vulkan-lib vulkan)
 
 add_library(MyLayer SHARED
     src/my_layer.cpp
@@ -25,5 +24,4 @@ target_include_directories(MyLayer PRIVATE
 target_link_libraries(MyLayer
     ${log-lib}
     ${android-lib}
-    ${vulkan-lib}
 )
